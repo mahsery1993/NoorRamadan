@@ -1,0 +1,72 @@
+name: Build Release APK & Google Play Bundle (AAB)
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-android-releases:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 1. Checkout Repository Code
+        uses: actions/checkout@v4
+
+      - name: 2. Set up JDK 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: 3. Setup Gradle 8.7
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.7'
+
+      - name: 4. Generate Upload Keystore for Release Signing
+        run: |
+          if [ ! -f app/release-keystore.jks ]; then
+            keytool -genkeypair -v \
+              -keystore app/release-keystore.jks \
+              -alias noor_ramadan_key \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass NoorRamadan2027! \
+              -keypass NoorRamadan2027! \
+              -dname "CN=Noor Ramadan, OU=Mobile, O=NoorRamadan, L=Amman, S=Amman, C=JO"
+          fi
+
+      - name: 5. Build Signed Release APK (للتثبيت المباشر على الهواتف)
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD || 'NoorRamadan2027!' }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS || 'noor_ramadan_key' }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'NoorRamadan2027!' }}
+        run: gradle assembleRelease --no-daemon
+
+      - name: 6. Build Signed Google Play App Bundle AAB (للرفع على متجر جوجل بلاي)
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD || 'NoorRamadan2027!' }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS || 'noor_ramadan_key' }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'NoorRamadan2027!' }}
+        run: gradle bundleRelease --no-daemon
+
+      - name: 7. Upload Signed APK Artifact (نسخة APK الجاهزة للتثبيت)
+        uses: actions/upload-artifact@v4
+        with:
+          name: NoorRamadan-Signed-Release-APK
+          path: app/build/outputs/apk/release/*.apk
+
+      - name: 8. Upload Google Play AAB Artifact (نسخة متجر Google Play بصيغة AAB)
+        uses: actions/upload-artifact@v4
+        with:
+          name: NoorRamadan-GooglePlay-Bundle-AAB
+          path: app/build/outputs/bundle/release/*.aab
+
+      - name: 9. Upload Upload-Keystore Backup (مفتاح التوقيع للترقيات القادمة)
+        uses: actions/upload-artifact@v4
+        with:
+          name: NoorRamadan-Release-Keystore
+          path: app/release-keystore.jks
