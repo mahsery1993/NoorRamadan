@@ -2,10 +2,18 @@ package com.noorramadan.prayertimes
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.net.Uri
 import android.os.Bundle
 import android.view.ViewGroup
 import android.webkit.GeolocationPermissions
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -24,16 +32,26 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
+import kotlin.math.roundToInt
 
 /**
  * MainActivity — نقطة الدخول الرئيسية لتطبيق نور رمضان ومواقيت الصلاة
- * مهيأ لإصدار APK المباشر وإصدار Google Play Store (AAB - Target SDK 35)
+ * يدعم:
+ * 1. حساسات البوصلة المغناطيسية الأصلية (SensorManager TYPE_ROTATION_VECTOR) لتوجيه القبلة بدقة
+ * 2. تحديد الموقع الجغرافي (GPS) عبر صلاحيات أندرويد الرسمية
+ * 3. اختيار وتشغيل ملف صوت الأذان المخصص من الهاتف أو من مجلد res/raw/adhan.mp3
  */
-class MainActivity : ComponentActivity() {
+class MainActivity : ComponentActivity(), SensorEventListener {
 
     private var appWebView: WebView? = null
     private var pendingGeoOrigin: String? = null
     private var pendingGeoCallback: GeolocationPermissions.Callback? = null
+    private var filePathCallback: ValueCallback<Array<Uri>>? = null
+
+    private lateinit var sensorManager: SensorManager
+    private var rotationVectorSensor: Sensor? = null
+    private val rotationMatrix = FloatArray(9)
+    private val orientationAngles = FloatArray(3)
 
     // طلب صلاحية الموقع الجغرافي (GPS) لحساب مواقيت الصلاة واتجاه القبلة بدقة
     private val locationPermissionLauncher = registerForActivityResult(
@@ -46,15 +64,30 @@ class MainActivity : ComponentActivity() {
         pendingGeoCallback = null
     }
 
+    // دعم اختيار ملف صوت الأذان من ذاكرة الهاتف داخل WebView
+    private val audioPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val uri = result.data?.data
+        if (result.resultCode == RESULT_OK && uri != null) {
+            filePathCallback?.onReceiveValue(arrayOf(uri))
+        } else {
+            filePathCallback?.onReceiveValue(null)
+        }
+        filePathCallback = null
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // ضبط ألوان شريط الحالة والنظام بما يتوافق مع متطلبات Android 15 و Google Play
         WindowCompat.setDecorFitsSystemWindows(window, true)
         window.statusBarColor = android.graphics.Color.parseColor("#05110D")
         window.navigationBarColor = android.graphics.Color.parseColor("#05110D")
 
-        // التعامل مع زر الرجوع في أندرويد للتنقل السلس داخل التطبيق
+        // تهيئة حساس البوصلة المغناطيسي في الهاتف
+        sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        rotationVectorSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 val webView = appWebView
@@ -72,10 +105,47 @@ class MainActivity : ComponentActivity() {
                 onWebViewCreated = { webView -> appWebView = webView },
                 onRequestGeoPermission = { origin, callback ->
                     handleGeolocationPermission(origin, callback)
+                },
+                onShowAudioFileChooser = { callback ->
+                    filePathCallback?.onReceiveValue(null)
+                    filePathCallback = callback
+                    val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "audio/*"
+                    }
+                    audioPickerLauncher.launch(Intent.createChooser(intent, "اختر ملف صوت الأذان"))
+                    true
                 }
             )
         }
     }
+
+    override fun onResume() {
+        super.onResume()
+        rotationVectorSensor?.let {
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        sensorManager.unregisterListener(this)
+    }
+
+    override fun onSensorChanged(event: SensorEvent?) {
+        if (event?.sensor?.type == Sensor.TYPE_ROTATION_VECTOR) {
+            SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
+            SensorManager.getOrientation(rotationMatrix, orientationAngles)
+            val azimuthRad = orientationAngles[0].toDouble()
+            val azimuthDeg = ((Math.toDegrees(azimuthRad) + 360.0) % 360.0).roundToInt()
+            appWebView?.evaluateJavascript(
+                "if(window.updateNativeCompassHeading){window.updateNativeCompassHeading($azimuthDeg);}",
+                null
+            )
+        }
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
     private fun handleGeolocationPermission(
         origin: String?,
@@ -113,7 +183,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun NoorRamadanMainScreen(
     onWebViewCreated: (WebView) -> Unit,
-    onRequestGeoPermission: (String?, GeolocationPermissions.Callback?) -> Unit
+    onRequestGeoPermission: (String?, GeolocationPermissions.Callback?) -> Unit,
+    onShowAudioFileChooser: (ValueCallback<Array<Uri>>) -> Boolean
 ) {
     AndroidView(
         modifier = Modifier
@@ -149,12 +220,8 @@ fun NoorRamadanMainScreen(
                         return if (url.startsWith("file:///android_asset/")) {
                             false
                         } else {
-                            // فتح الروابط المرجعية الخارجية في المتصفح الخارجي بأمان
                             try {
-                                val intent = android.content.Intent(
-                                    android.content.Intent.ACTION_VIEW,
-                                    request.url
-                                )
+                                val intent = Intent(Intent.ACTION_VIEW, request.url)
                                 context.startActivity(intent)
                             } catch (_: Exception) {
                             }
@@ -169,6 +236,18 @@ fun NoorRamadanMainScreen(
                         callback: GeolocationPermissions.Callback?
                     ) {
                         onRequestGeoPermission(origin, callback)
+                    }
+
+                    override fun onShowFileChooser(
+                        webView: WebView?,
+                        filePathCallback: ValueCallback<Array<Uri>>?,
+                        fileChooserParams: FileChooserParams?
+                    ): Boolean {
+                        return if (filePathCallback != null) {
+                            onShowAudioFileChooser(filePathCallback)
+                        } else {
+                            false
+                        }
                     }
                 }
 
