@@ -81,8 +81,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         super.onCreate(savedInstanceState)
 
         WindowCompat.setDecorFitsSystemWindows(window, true)
-        window.statusBarColor = android.graphics.Color.parseColor("#05110D")
-        window.navigationBarColor = android.graphics.Color.parseColor("#05110D")
+        window.statusBarColor = android.graphics.Color.parseColor("#050A18")
+        window.navigationBarColor = android.graphics.Color.parseColor("#050A18")
 
         // تهيئة حساس البوصلة المغناطيسي في الهاتف
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
@@ -189,7 +189,7 @@ fun NoorRamadanMainScreen(
     AndroidView(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF071712))
+            .background(Color(0xFF070D1F))
             .systemBarsPadding(),
         factory = { context ->
             WebView(context).apply {
@@ -197,7 +197,7 @@ fun NoorRamadanMainScreen(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
-                setBackgroundColor(android.graphics.Color.parseColor("#071712"))
+                setBackgroundColor(android.graphics.Color.parseColor("#070D1F"))
 
                 settings.apply {
                     javaScriptEnabled = true
