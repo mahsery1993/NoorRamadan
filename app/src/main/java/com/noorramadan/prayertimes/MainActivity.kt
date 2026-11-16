@@ -2,6 +2,8 @@ package com.noorramadan.prayertimes
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.AlarmManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -10,9 +12,11 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.view.ViewGroup
 import android.webkit.GeolocationPermissions
+import android.webkit.JavascriptInterface
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -32,15 +36,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
+import org.json.JSONArray
+import java.util.Calendar
 import kotlin.math.roundToInt
 
-/**
- * MainActivity — نقطة الدخول الرئيسية لتطبيق نور رمضان ومواقيت الصلاة
- * يدعم:
- * 1. حساسات البوصلة المغناطيسية الأصلية (SensorManager TYPE_ROTATION_VECTOR) لتوجيه القبلة بدقة
- * 2. تحديد الموقع الجغرافي (GPS) عبر صلاحيات أندرويد الرسمية
- * 3. اختيار وتشغيل ملف صوت الأذان المخصص من الهاتف أو من مجلد res/raw/adhan.mp3
- */
 class MainActivity : ComponentActivity(), SensorEventListener {
 
     private var appWebView: WebView? = null
@@ -53,7 +52,13 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private val rotationMatrix = FloatArray(9)
     private val orientationAngles = FloatArray(3)
 
-    // طلب صلاحية الموقع الجغرافي (GPS) لحساب مواقيت الصلاة واتجاه القبلة بدقة
+    // طلب صلاحية الإشعارات في أندرويد 13+ (TIRAMISU) لضمان وصول إشعارات الصلاة على شاشة الهاتف
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ ->
+        PrayerNotificationReceiver.ensureChannel(this)
+    }
+
     private val locationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -64,7 +69,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         pendingGeoCallback = null
     }
 
-    // دعم اختيار ملف صوت الأذان من ذاكرة الهاتف داخل WebView
     private val audioPickerLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -84,7 +88,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         window.statusBarColor = android.graphics.Color.parseColor("#050A18")
         window.navigationBarColor = android.graphics.Color.parseColor("#050A18")
 
-        // تهيئة حساس البوصلة المغناطيسي في الهاتف
+        // تهيئة قناة إشعارات الصلاة وطلب الصلاحية على أندرويد 13 فما فوق
+        PrayerNotificationReceiver.ensureChannel(this)
+        requestNotificationPermissionIfNeeded()
+
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         rotationVectorSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
 
@@ -102,6 +109,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
         setContent {
             NoorRamadanMainScreen(
+                bridge = AndroidPrayerBridge(this),
                 onWebViewCreated = { webView -> appWebView = webView },
                 onRequestGeoPermission = { origin, callback ->
                     handleGeolocationPermission(origin, callback)
@@ -120,11 +128,27 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
     }
 
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = ContextCompat.checkSelfPermission(
+                this, Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         rotationVectorSensor?.let {
             sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
         }
+        // تحديث تاريخ اليوم تلقائياً عند العودة للتطبيق
+        appWebView?.evaluateJavascript(
+            "if(window.syncLiveTodayDateIfNeeded){window.syncLiveTodayDateIfNeeded();}",
+            null
+        )
     }
 
     override fun onPause() {
@@ -177,11 +201,91 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         appWebView = null
         super.onDestroy()
     }
+
+    inner class AndroidPrayerBridge(private val context: Context) {
+
+        @JavascriptInterface
+        fun showImmediatePrayerNotification(prayerName: String, prayerTime: String, locationName: String) {
+            requestNotificationPermissionIfNeeded()
+            PrayerNotificationReceiver.showPrayerHeadsUpNotification(
+                context = context,
+                prayerName = prayerName,
+                prayerTime = prayerTime,
+                locationName = locationName,
+                notificationId = (System.currentTimeMillis() % 10000).toInt()
+            )
+        }
+
+        @JavascriptInterface
+        fun scheduleDailyPrayerAlarms(prayersJson: String, locationName: String, enabled: Boolean) {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val pendingFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            } else {
+                PendingIntent.FLAG_UPDATE_CURRENT
+            }
+
+            // إلغاء أي تنبيهات سابقة قبل إعادة الجدولة
+            for (i in 0..9) {
+                val cancelIntent = Intent(context, PrayerNotificationReceiver::class.java)
+                val pi = PendingIntent.getBroadcast(context, 2000 + i, cancelIntent, pendingFlags)
+                alarmManager.cancel(pi)
+            }
+
+            if (!enabled) return
+
+            try {
+                val arr = JSONArray(prayersJson)
+                val nowMillis = System.currentTimeMillis()
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    val name = obj.optString("name", "الصلاة")
+                    val formatted = obj.optString("formatted", "")
+                    val hour = obj.optInt("hour", 0)
+                    val minute = obj.optInt("minute", 0)
+
+                    val cal = Calendar.getInstance().apply {
+                        set(Calendar.HOUR_OF_DAY, hour)
+                        set(Calendar.MINUTE, minute)
+                        set(Calendar.SECOND, 0)
+                        set(Calendar.MILLISECOND, 0)
+                        if (timeInMillis <= nowMillis) {
+                            add(Calendar.DAY_OF_YEAR, 1)
+                        }
+                    }
+
+                    val intent = Intent(context, PrayerNotificationReceiver::class.java).apply {
+                        putExtra("prayer_name", name)
+                        putExtra("prayer_time", formatted)
+                        putExtra("location_name", locationName)
+                        putExtra("notification_id", 2000 + i)
+                    }
+                    val pi = PendingIntent.getBroadcast(context, 2000 + i, intent, pendingFlags)
+
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            alarmManager.setExactAndAllowWhileIdle(
+                                AlarmManager.RTC_WAKEUP,
+                                cal.timeInMillis,
+                                pi
+                            )
+                        } else {
+                            alarmManager.setExact(AlarmManager.RTC_WAKEUP, cal.timeInMillis, pi)
+                        }
+                    } catch (_: SecurityException) {
+                        alarmManager.set(AlarmManager.RTC_WAKEUP, cal.timeInMillis, pi)
+                    }
+                }
+            } catch (_: Exception) {
+            }
+        }
+    }
 }
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun NoorRamadanMainScreen(
+    bridge: MainActivity.AndroidPrayerBridge,
     onWebViewCreated: (WebView) -> Unit,
     onRequestGeoPermission: (String?, GeolocationPermissions.Callback?) -> Unit,
     onShowAudioFileChooser: (ValueCallback<Array<Uri>>) -> Boolean
@@ -210,6 +314,8 @@ fun NoorRamadanMainScreen(
                     allowContentAccess = true
                     textZoom = 100
                 }
+
+                addJavascriptInterface(bridge, "AndroidBridge")
 
                 webViewClient = object : WebViewClient() {
                     override fun shouldOverrideUrlLoading(
