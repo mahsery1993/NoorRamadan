@@ -85,8 +85,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         super.onCreate(savedInstanceState)
 
         WindowCompat.setDecorFitsSystemWindows(window, true)
-        window.statusBarColor = android.graphics.Color.parseColor("#050A18")
-        window.navigationBarColor = android.graphics.Color.parseColor("#050A18")
+        window.statusBarColor = android.graphics.Color.parseColor("#EEF2FF")
+        window.navigationBarColor = android.graphics.Color.parseColor("#EEF2FF")
 
         // تهيئة قناة إشعارات الصلاة وطلب الصلاحية على أندرويد 13 فما فوق
         PrayerNotificationReceiver.ensureChannel(this)
@@ -293,7 +293,7 @@ fun NoorRamadanMainScreen(
     AndroidView(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF070D1F))
+            .background(Color(0xFFEEF2FF))
             .systemBarsPadding(),
         factory = { context ->
             WebView(context).apply {
@@ -301,7 +301,7 @@ fun NoorRamadanMainScreen(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
-                setBackgroundColor(android.graphics.Color.parseColor("#070D1F"))
+                setBackgroundColor(android.graphics.Color.parseColor("#EEF2FF"))
 
                 settings.apply {
                     javaScriptEnabled = true
