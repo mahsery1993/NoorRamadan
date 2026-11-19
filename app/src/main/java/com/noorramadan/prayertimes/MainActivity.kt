@@ -2,8 +2,6 @@ package com.noorramadan.prayertimes
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.app.AlarmManager
-import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -14,6 +12,8 @@ import android.hardware.SensorManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import android.view.ViewGroup
 import android.webkit.GeolocationPermissions
 import android.webkit.JavascriptInterface
@@ -36,8 +36,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
-import org.json.JSONArray
-import java.util.Calendar
 import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity(), SensorEventListener {
@@ -52,11 +50,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private val rotationMatrix = FloatArray(9)
     private val orientationAngles = FloatArray(3)
 
-    // طلب صلاحية الإشعارات في أندرويد 13+ (TIRAMISU) لضمان وصول إشعارات الصلاة على شاشة الهاتف
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { _ ->
-        PrayerNotificationReceiver.ensureChannel(this)
+        PrayerNotificationReceiver.ensureChannels(this)
     }
 
     private val locationPermissionLauncher = registerForActivityResult(
@@ -88,8 +85,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         window.statusBarColor = android.graphics.Color.parseColor("#EEF2FF")
         window.navigationBarColor = android.graphics.Color.parseColor("#EEF2FF")
 
-        // تهيئة قناة إشعارات الصلاة وطلب الصلاحية على أندرويد 13 فما فوق
-        PrayerNotificationReceiver.ensureChannel(this)
+        PrayerNotificationReceiver.ensureChannels(this)
         requestNotificationPermissionIfNeeded()
 
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
@@ -144,11 +140,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         rotationVectorSensor?.let {
             sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
         }
-        // تحديث تاريخ اليوم تلقائياً عند العودة للتطبيق
         appWebView?.evaluateJavascript(
             "if(window.syncLiveTodayDateIfNeeded){window.syncLiveTodayDateIfNeeded();}",
             null
         )
+        PrayerWidgetProvider.refreshAllWidgets(this)
     }
 
     override fun onPause() {
@@ -205,78 +201,82 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     inner class AndroidPrayerBridge(private val context: Context) {
 
         @JavascriptInterface
-        fun showImmediatePrayerNotification(prayerName: String, prayerTime: String, locationName: String) {
+        fun showImmediatePrayerNotification(
+            prayerName: String,
+            prayerTime: String,
+            locationName: String
+        ) {
             requestNotificationPermissionIfNeeded()
             PrayerNotificationReceiver.showPrayerHeadsUpNotification(
                 context = context,
                 prayerName = prayerName,
                 prayerTime = prayerTime,
                 locationName = locationName,
-                notificationId = (System.currentTimeMillis() % 10000).toInt()
+                notificationId = (System.currentTimeMillis() % 10000).toInt(),
+                withSound = false,
+                isSuhoor = false
             )
         }
 
         @JavascriptInterface
         fun scheduleDailyPrayerAlarms(prayersJson: String, locationName: String, enabled: Boolean) {
-            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-            val pendingFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            } else {
-                PendingIntent.FLAG_UPDATE_CURRENT
-            }
+            PrayerAlarmScheduler.saveAndSchedule(
+                context = context,
+                prayersJson = prayersJson,
+                locationName = locationName,
+                enabled = enabled
+            )
+        }
 
-            // إلغاء أي تنبيهات سابقة قبل إعادة الجدولة
-            for (i in 0..9) {
-                val cancelIntent = Intent(context, PrayerNotificationReceiver::class.java)
-                val pi = PendingIntent.getBroadcast(context, 2000 + i, cancelIntent, pendingFlags)
-                alarmManager.cancel(pi)
-            }
+        @JavascriptInterface
+        fun updateWidgetData(
+            nextName: String,
+            nextTime: String,
+            cityName: String,
+            fajrTime: String,
+            maghribTime: String,
+            hijriDate: String
+        ) {
+            PrayerAlarmScheduler.saveWidgetSnapshot(
+                context = context,
+                nextName = nextName,
+                nextTime = nextTime,
+                cityName = cityName,
+                fajrTime = fajrTime,
+                maghribTime = maghribTime,
+                hijriDate = hijriDate
+            )
+        }
 
-            if (!enabled) return
+        @JavascriptInterface
+        fun isIgnoringBatteryOptimizations(): Boolean {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true
+            val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+            return pm.isIgnoringBatteryOptimizations(context.packageName)
+        }
 
-            try {
-                val arr = JSONArray(prayersJson)
-                val nowMillis = System.currentTimeMillis()
-                for (i in 0 until arr.length()) {
-                    val obj = arr.getJSONObject(i)
-                    val name = obj.optString("name", "الصلاة")
-                    val formatted = obj.optString("formatted", "")
-                    val hour = obj.optInt("hour", 0)
-                    val minute = obj.optInt("minute", 0)
-
-                    val cal = Calendar.getInstance().apply {
-                        set(Calendar.HOUR_OF_DAY, hour)
-                        set(Calendar.MINUTE, minute)
-                        set(Calendar.SECOND, 0)
-                        set(Calendar.MILLISECOND, 0)
-                        if (timeInMillis <= nowMillis) {
-                            add(Calendar.DAY_OF_YEAR, 1)
-                        }
-                    }
-
-                    val intent = Intent(context, PrayerNotificationReceiver::class.java).apply {
-                        putExtra("prayer_name", name)
-                        putExtra("prayer_time", formatted)
-                        putExtra("location_name", locationName)
-                        putExtra("notification_id", 2000 + i)
-                    }
-                    val pi = PendingIntent.getBroadcast(context, 2000 + i, intent, pendingFlags)
-
+        @JavascriptInterface
+        @SuppressLint("BatteryLife")
+        fun requestIgnoreBatteryOptimizations() {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+                if (!pm.isIgnoringBatteryOptimizations(context.packageName)) {
                     try {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                            alarmManager.setExactAndAllowWhileIdle(
-                                AlarmManager.RTC_WAKEUP,
-                                cal.timeInMillis,
-                                pi
-                            )
-                        } else {
-                            alarmManager.setExact(AlarmManager.RTC_WAKEUP, cal.timeInMillis, pi)
+                        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                            data = Uri.parse("package:${context.packageName}")
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
                         }
-                    } catch (_: SecurityException) {
-                        alarmManager.set(AlarmManager.RTC_WAKEUP, cal.timeInMillis, pi)
+                        context.startActivity(intent)
+                    } catch (_: Exception) {
+                        try {
+                            val fallback = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            context.startActivity(fallback)
+                        } catch (_: Exception) {
+                        }
                     }
                 }
-            } catch (_: Exception) {
             }
         }
     }

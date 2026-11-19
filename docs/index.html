@@ -4,10 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>نور رمضان — مواقيت الصلاة وإمساكية شهر رمضان المبارك</title>
-  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Cairo:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     /* ==========================================================================
        ROYAL MIDNIGHT SAPPHIRE & GOLD THEME (DARK + LIGHT MODE CSS VARIABLES)
@@ -952,6 +948,77 @@
   min-width: 0;
 }
 
+
+/* === 100% Offline-First Arabic Fonts & Complete Utility Fallbacks === */
+@font-face {
+  font-family: 'Noto Sans Arabic';
+  src: url('./fonts/NotoSansArabic-Regular.ttf') format('truetype');
+  font-weight: 400 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Noto Sans Arabic';
+  src: url('./fonts/NotoSansArabic-Bold.ttf') format('truetype');
+  font-weight: 700 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Noto Naskh Arabic';
+  src: url('./fonts/NotoNaskhArabic-Regular.ttf') format('truetype');
+  font-weight: 400 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Noto Naskh Arabic';
+  src: url('./fonts/NotoNaskhArabic-Bold.ttf') format('truetype');
+  font-weight: 700 900;
+  font-style: normal;
+  font-display: swap;
+}
+body {
+  font-family: 'Noto Sans Arabic', 'Cairo', 'Segoe UI', Tahoma, Arial, sans-serif !important;
+}
+.amiri-font {
+  font-family: 'Noto Naskh Arabic', 'Amiri', 'Traditional Arabic', Georgia, serif !important;
+}
+
+/* Per-Prayer Notification Matrix & Privacy/Permission Cards */
+.prayer-alert-matrix {
+  display: grid;
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+.prayer-alert-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: 0.8rem;
+  background: rgba(15, 23, 42, 0.35);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+}
+body.light-theme .prayer-alert-row {
+  background: #F8FAFC;
+  border-color: rgba(30, 58, 138, 0.14);
+}
+.prayer-alert-row select {
+  width: auto !important;
+  min-width: 126px;
+  padding: 0.32rem 0.6rem !important;
+  font-size: 0.76rem !important;
+  border-radius: 0.65rem !important;
+}
+.privacy-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
 </style>
 </head>
 <body class="light-theme min-h-screen flex flex-col justify-between pb-24">
@@ -1173,7 +1240,8 @@
             <p class="text-[11px] theme-text-secondary">
               حسب الموقع المختار: <strong id="imsakiya-city-name" class="theme-text-primary">عمّان، الأردن</strong> • <span id="ramadan-countdown-badge" class="theme-text-gold font-bold">متبقي لرمضان: 86 يوماً</span>
             </p>
-          </div>
+          
+          <button id="btn-imsakiya-gps-sync" type="button" class="btn-dark-emerald text-[11px] px-2.5 py-1">📍 تحديث الإمساكية حسب موقعي</button></div>
 
           <div class="flex flex-wrap items-center gap-1.5">
             <button type="button" data-ashr="all" class="imsakiya-filter-btn btn-gold">كل الشهر (30 يوماً)</button>
@@ -1869,6 +1937,72 @@
         </div>
 
         <!-- Adhan Playback & Custom File Attachment Dock -->
+        
+        <div class="settings-row-box space-y-2.5">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-xs font-extrabold theme-text-primary">تخصيص التنبيه لكل صلاة على حدة</span>
+            <span class="text-[11px] font-bold theme-text-gold">صوت / شاشة / صامت</span>
+          </div>
+          <div class="prayer-alert-matrix">
+            <div class="prayer-alert-row">
+              <span class="text-xs font-bold theme-text-primary">🌅 صلاة الفجر</span>
+              <select id="select-alert-fajr" class="form-input prayer-alert-mode-select" data-prayer-key="fajr">
+                <option value="screen">📱 شاشة فقط</option>
+                <option value="sound">🔊 صوت وشاشة</option>
+                <option value="off">🔕 صامت (مطفأ)</option>
+              </select>
+            </div>
+            <div class="prayer-alert-row">
+              <span class="text-xs font-bold theme-text-primary">☀️ صلاة الظهر</span>
+              <select id="select-alert-dhuhr" class="form-input prayer-alert-mode-select" data-prayer-key="dhuhr">
+                <option value="screen">📱 شاشة فقط</option>
+                <option value="sound">🔊 صوت وشاشة</option>
+                <option value="off">🔕 صامت (مطفأ)</option>
+              </select>
+            </div>
+            <div class="prayer-alert-row">
+              <span class="text-xs font-bold theme-text-primary">🌤️ صلاة العصر</span>
+              <select id="select-alert-asr" class="form-input prayer-alert-mode-select" data-prayer-key="asr">
+                <option value="screen">📱 شاشة فقط</option>
+                <option value="sound">🔊 صوت وشاشة</option>
+                <option value="off">🔕 صامت (مطفأ)</option>
+              </select>
+            </div>
+            <div class="prayer-alert-row">
+              <span class="text-xs font-bold theme-text-primary">🌇 صلاة المغرب</span>
+              <select id="select-alert-maghrib" class="form-input prayer-alert-mode-select" data-prayer-key="maghrib">
+                <option value="screen">📱 شاشة فقط</option>
+                <option value="sound">🔊 صوت وشاشة</option>
+                <option value="off">🔕 صامت (مطفأ)</option>
+              </select>
+            </div>
+            <div class="prayer-alert-row">
+              <span class="text-xs font-bold theme-text-primary">🌙 صلاة العشاء</span>
+              <select id="select-alert-isha" class="form-input prayer-alert-mode-select" data-prayer-key="isha">
+                <option value="screen">📱 شاشة فقط</option>
+                <option value="sound">🔊 صوت وشاشة</option>
+                <option value="off">🔕 صامت (مطفأ)</option>
+              </select>
+            </div>
+          </div>
+          <div class="pt-1 border-t border-slate-500/20">
+            <label for="select-suhoor-alert" class="block text-xs font-extrabold theme-text-primary mb-1">🌙 تذكير وقت السحور والإمساك (قبل الفجر)</label>
+            <select id="select-suhoor-alert" class="form-input text-xs font-bold">
+              <option value="0">مطفأ</option>
+              <option value="15">قبل أذان الفجر بـ 15 دقيقة</option>
+              <option value="20" selected>قبل أذان الفجر بـ 20 دقيقة</option>
+              <option value="30">قبل أذان الفجر بـ 30 دقيقة</option>
+            </select>
+          </div>
+          <div class="pt-1 border-t border-slate-500/20 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p class="text-xs font-extrabold theme-text-primary">🔋 ضمان وصول التنبيهات في الخلفية</p>
+              <p class="text-[11px] theme-text-secondary">استثنِ التطبيق من توفير البطارية لثبات إشعارات الأذان بعد إعادة التشغيل</p>
+            </div>
+            <button id="btn-battery-opt" type="button" class="btn-dark-emerald text-xs px-3 py-1.5">تفعيل استثناء البطارية</button>
+          </div>
+        </div>
+
         <div class="settings-row-box space-y-2">
           <span class="text-[11px] font-extrabold theme-text-secondary block">التحكم بملف صوت الأذان:</span>
           <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -1965,6 +2099,24 @@
           <li>المعايير العالمية وإمساكية رمضان 1448 هـ (8 فبراير 2027 م): <a href="https://praytimes.org/docs/calculation" target="_blank" rel="noopener noreferrer" class="theme-text-gold underline font-bold">معادلات PrayTimes العالمية</a> و <a href="https://ummalquracalendar.org/umm-al-qura-ramadan-calendar/" target="_blank" rel="noopener noreferrer" class="theme-text-gold underline font-bold">تقويم أم القرى</a> و <a href="https://drishlabs.com/tools/qibla-direction" target="_blank" rel="noopener noreferrer" class="theme-text-gold underline font-bold">حساب اتجاه القبلة الجغرافي</a>.</li>
         </ul>
       </div>
+    
+      <!-- Privacy & Permissions Readiness Card -->
+      <div class="settings-group-card space-y-2.5">
+        <div class="pro-section-header">
+          <div class="pro-icon-badge" style="background:rgba(16,185,129,0.14);border-color:rgba(16,185,129,0.4);color:#059669;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+          </div>
+          <div>
+            <h4 class="theme-text-primary">الخصوصية والأذونات والعمل دون إنترنت</h4>
+            <p class="theme-text-secondary">جميع حسابات المواقيت والقبلة والختمة تتم محلياً على جهازك دون جمع أي بيانات شخصية</p>
+          </div>
+        </div>
+        <div class="privacy-pill-row">
+          <button id="btn-open-permission-rationale" type="button" class="btn-dark-emerald text-xs px-3 py-2 flex-1">🛡️ توضيح صلاحيات الموقع والتنبيهات</button>
+          <a href="./privacy.html" target="_blank" rel="noopener noreferrer" class="btn-gold text-xs px-3 py-2 flex-1 text-center" style="display:inline-flex;align-items:center;justify-content:center;text-decoration:none;">📄 سياسة الخصوصية الكاملة</a>
+        </div>
+      </div>
+
     </section>
 
   </main>
@@ -2563,6 +2715,9 @@
       use24Hour: false,
       audioEnabled: false,
       screenAlertEnabled: true,
+      prayerAlertModes: { fajr: 'screen', dhuhr: 'screen', asr: 'screen', maghrib: 'screen', isha: 'screen' },
+      suhoorAlertMinutes: 20,
+      permissionRationaleSeen: false,
       lastAlertedPrayerKey: null,
       isAdhanPlaying: false,
       customAdhanDataUrl: null,
@@ -3314,15 +3469,16 @@
 
 
     function syncNativeAndroidAlarms(times) {
-      if (!window.AndroidBridge || typeof window.AndroidBridge.scheduleDailyPrayerAlarms !== 'function') return;
+      if (!window.AndroidBridge) return;
       try {
         const city = getActiveLocationObject();
+        const modes = state.prayerAlertModes || { fajr: 'screen', dhuhr: 'screen', asr: 'screen', maghrib: 'screen', isha: 'screen' };
         const fardPrayers = [
-          { name: 'الفجر', dec: times.fajr },
-          { name: 'الظهر', dec: times.dhuhr },
-          { name: 'العصر', dec: times.asr },
-          { name: 'المغرب (الإفطار)', dec: times.maghrib },
-          { name: 'العشاء', dec: times.isha }
+          { key: 'fajr', name: 'الفجر', dec: times.fajr },
+          { key: 'dhuhr', name: 'الظهر', dec: times.dhuhr },
+          { key: 'asr', name: 'العصر', dec: times.asr },
+          { key: 'maghrib', name: 'المغرب (الإفطار)', dec: times.maghrib },
+          { key: 'isha', name: 'العشاء', dec: times.isha }
         ].map(p => {
           const norm = fixHour(p.dec);
           const totalMins = Math.round(norm * 60);
@@ -3330,14 +3486,48 @@
             name: p.name,
             hour: Math.floor(totalMins / 60) % 24,
             minute: totalMins % 60,
-            formatted: formatDecimalHour(p.dec)
+            formatted: formatDecimalHour(p.dec),
+            mode: modes[p.key] || 'screen',
+            isSuhoor: false
           };
         });
-        window.AndroidBridge.scheduleDailyPrayerAlarms(
-          JSON.stringify(fardPrayers),
-          city.name,
-          !!state.screenAlertEnabled
-        );
+
+        const suhoorMinsBefore = parseInt(state.suhoorAlertMinutes || 0, 10);
+        if (suhoorMinsBefore > 0) {
+          const fajrNorm = fixHour(times.fajr);
+          let suhoorTotalMins = Math.round(fajrNorm * 60) - suhoorMinsBefore;
+          if (suhoorTotalMins < 0) suhoorTotalMins += 1440;
+          fardPrayers.push({
+            name: `تذكير السحور (قبل الفجر بـ ${suhoorMinsBefore} دقيقة)`,
+            hour: Math.floor(suhoorTotalMins / 60) % 24,
+            minute: suhoorTotalMins % 60,
+            formatted: formatDecimalHour(times.fajr),
+            mode: 'screen',
+            isSuhoor: true
+          });
+        }
+
+        if (typeof window.AndroidBridge.scheduleDailyPrayerAlarms === 'function') {
+          window.AndroidBridge.scheduleDailyPrayerAlarms(
+            JSON.stringify(fardPrayers),
+            city.name,
+            !!state.screenAlertEnabled
+          );
+        }
+
+        if (typeof window.AndroidBridge.updateWidgetData === 'function') {
+          const nextNameEl = document.getElementById('next-prayer-name');
+          const nextTimeEl = document.getElementById('next-prayer-time');
+          const hijriEl = document.getElementById('today-hijri-date');
+          window.AndroidBridge.updateWidgetData(
+            nextNameEl ? nextNameEl.textContent.trim() : 'الفجر',
+            nextTimeEl ? nextTimeEl.textContent.trim() : formatDecimalHour(times.fajr),
+            city.name,
+            formatDecimalHour(times.fajr),
+            formatDecimalHour(times.maghrib),
+            hijriEl ? hijriEl.textContent.trim() : 'نور رمضان'
+          );
+        }
       } catch (e) {}
     }
 
@@ -3442,14 +3632,30 @@
           { key: 'maghrib', name: 'المغرب (الإفطار)', time: times.maghrib },
           { key: 'isha', name: 'العشاء', time: times.isha }
         ];
+        const modes = state.prayerAlertModes || { fajr: 'screen', dhuhr: 'screen', asr: 'screen', maghrib: 'screen', isha: 'screen' };
         fardList.forEach(fp => {
+          const mode = modes[fp.key] || 'screen';
+          if (mode === 'off') return;
           const pMins = Math.round(fixHour(fp.time) * 60) % 1440;
           const alertId = `${state.selectedDateStr}_${fp.key}_${nowTotalMins}`;
           if (pMins === nowTotalMins && state.lastAlertedPrayerKey !== alertId) {
             state.lastAlertedPrayerKey = alertId;
             triggerScreenAdhanAlert(fp.name, formatDecimalHour(fp.time));
+            if (mode === 'sound' && typeof playAdhanAudio === 'function') {
+              try { playAdhanAudio(); } catch (e) {}
+            }
           }
         });
+        const suhoorMins = parseInt(state.suhoorAlertMinutes || 0, 10);
+        if (suhoorMins > 0) {
+          let suhoorTarget = (Math.round(fixHour(times.fajr) * 60) - suhoorMins) % 1440;
+          if (suhoorTarget < 0) suhoorTarget += 1440;
+          const suhoorId = `${state.selectedDateStr}_suhoor_${nowTotalMins}`;
+          if (suhoorTarget === nowTotalMins && state.lastAlertedPrayerKey !== suhoorId) {
+            state.lastAlertedPrayerKey = suhoorId;
+            triggerScreenAdhanAlert(`السحور (قبل الفجر بـ ${suhoorMins} د)`, formatDecimalHour(times.fajr));
+          }
+        }
       }
     }
 
@@ -4530,6 +4736,114 @@
       if (window._prayerTimer) clearInterval(window._prayerTimer);
       window._prayerTimer = setInterval(updateLiveClockAndCountdown, 1000);
     });
+  
+    // === Per-Prayer Alerts, Suhoor Reminder, Battery Optimization, Dynamic Imsakiya GPS & Permission Rationale ===
+    (function initProAndroidReadinessControls() {
+      const modes = state.prayerAlertModes || { fajr: 'screen', dhuhr: 'screen', asr: 'screen', maghrib: 'screen', isha: 'screen' };
+      state.prayerAlertModes = modes;
+
+      document.querySelectorAll('.prayer-alert-mode-select').forEach(sel => {
+        const key = sel.getAttribute('data-prayer-key');
+        if (key && modes[key]) sel.value = modes[key];
+        sel.addEventListener('change', () => {
+          state.prayerAlertModes[key] = sel.value;
+          saveState();
+          renderDailyPrayers();
+          showToast('تم حفظ نمط التنبيه وتحديث الجدولة', '🔔');
+        });
+      });
+
+      const suhoorSel = document.getElementById('select-suhoor-alert');
+      if (suhoorSel) {
+        suhoorSel.value = String(state.suhoorAlertMinutes ?? 20);
+        suhoorSel.addEventListener('change', () => {
+          state.suhoorAlertMinutes = parseInt(suhoorSel.value, 10) || 0;
+          saveState();
+          renderDailyPrayers();
+          showToast(
+            state.suhoorAlertMinutes > 0
+              ? `تم ضبط تذكير السحور قبل الفجر بـ ${state.suhoorAlertMinutes} دقيقة`
+              : 'تم إيقاف تذكير السحور',
+            '🌙'
+          );
+        });
+      }
+
+      const batteryBtn = document.getElementById('btn-battery-opt');
+      if (batteryBtn) {
+        try {
+          if (window.AndroidBridge && typeof window.AndroidBridge.isIgnoringBatteryOptimizations === 'function' && window.AndroidBridge.isIgnoringBatteryOptimizations()) {
+            batteryBtn.textContent = '✓ مستثنى من توفير البطارية';
+          }
+        } catch (e) {}
+        batteryBtn.addEventListener('click', () => {
+          if (window.AndroidBridge && typeof window.AndroidBridge.requestIgnoreBatteryOptimizations === 'function') {
+            window.AndroidBridge.requestIgnoreBatteryOptimizations();
+            showToast('يرجى الموافقة على استثناء التطبيق لضمان ثبات الإشعارات', '🔋');
+          } else {
+            showToast('هذه الميزة تعمل مباشرة داخل تطبيق الأندرويد المثبّت على هاتفك', '📱');
+          }
+        });
+      }
+
+      const imsGpsBtn = document.getElementById('btn-imsakiya-gps-sync');
+      if (imsGpsBtn) {
+        imsGpsBtn.addEventListener('click', () => {
+          const gpsBtn = document.getElementById('btn-settings-gps-auto');
+          if (gpsBtn) gpsBtn.click();
+          else if (typeof detectGpsLocation === 'function') detectGpsLocation(true);
+        });
+      }
+
+      const modal = document.getElementById('permission-rationale-modal');
+      const openBtn = document.getElementById('btn-open-permission-rationale');
+      const closeBtn = document.getElementById('btn-close-rationale');
+      const dismissBtn = document.getElementById('btn-rationale-dismiss');
+      const confirmGpsBtn = document.getElementById('btn-rationale-confirm-gps');
+
+      const closeRationale = () => {
+        if (modal) modal.classList.add('hidden');
+        state.permissionRationaleSeen = true;
+        saveState();
+      };
+      if (openBtn && modal) openBtn.addEventListener('click', () => modal.classList.remove('hidden'));
+      if (closeBtn) closeBtn.addEventListener('click', closeRationale);
+      if (dismissBtn) dismissBtn.addEventListener('click', closeRationale);
+      if (confirmGpsBtn) {
+        confirmGpsBtn.addEventListener('click', () => {
+          closeRationale();
+          const gpsBtn = document.getElementById('btn-settings-gps-auto');
+          if (gpsBtn) gpsBtn.click();
+        });
+      }
+    })();
+
   </script>
+
+  <!-- Permission Rationale Modal (Google Play Readiness) -->
+  <div id="permission-rationale-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(15,23,42,0.72);backdrop-filter:blur(6px);">
+    <div class="glass-card w-full max-w-md p-5 space-y-3" style="border:2px solid #D97706;">
+      <div class="flex items-center justify-between gap-2">
+        <h3 class="text-base font-extrabold theme-text-gold">🛡️ لماذا يطلب التطبيق هذه الصلاحيات؟</h3>
+        <button id="btn-close-rationale" type="button" class="btn-dark-emerald text-xs px-2.5 py-1">✕</button>
+      </div>
+      <div class="space-y-2 text-xs leading-relaxed theme-text-primary">
+        <div class="p-2.5 rounded-xl" style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);">
+          <strong>📍 الموقع الجغرافي (GPS):</strong> يُستخدم محلياً داخل الهاتف فقط لحساب مواقيت الصلاة وإمساكية رمضان واتجاه القبلة بدقة لمدينتك، ولا يُرسل لأي خادم خارجي. يمكنك دائماً اختيار المدينة يدوياً.
+        </div>
+        <div class="p-2.5 rounded-xl" style="background:rgba(217,119,6,0.08);border:1px solid rgba(217,119,6,0.22);">
+          <strong>🔔 الإشعارات والمنبهات الدقيقة:</strong> تُستخدم فقط لإرسال تنبيهات دخول وقت الصلاة وتذكير السحور في موعدها الدقيق وإعادة جدولتها تلقائياً بعد إعادة تشغيل الجهاز.
+        </div>
+        <div class="p-2.5 rounded-xl" style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.22);">
+          <strong>🔒 خصوصيتك محفوظة 100%:</strong> لا يتطلب التطبيق تسجيلاً ولا يجمع أي بيانات شخصية، ويعمل بالكامل دون الحاجة للإنترنت.
+        </div>
+      </div>
+      <div class="flex gap-2 pt-1">
+        <button id="btn-rationale-confirm-gps" type="button" class="btn-gold text-xs py-2.5 flex-1 font-extrabold">موافق — تحديد موقعي الآن</button>
+        <button id="btn-rationale-dismiss" type="button" class="btn-dark-emerald text-xs py-2.5 px-4">إغلاق</button>
+      </div>
+    </div>
+  </div>
+
 </body>
 </html>
