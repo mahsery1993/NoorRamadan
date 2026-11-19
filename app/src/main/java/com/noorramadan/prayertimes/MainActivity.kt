@@ -13,6 +13,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
+import android.os.SystemClock
 import android.provider.Settings
 import android.view.ViewGroup
 import android.webkit.GeolocationPermissions
@@ -36,7 +37,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
-import kotlin.math.roundToInt
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
 
 class MainActivity : ComponentActivity(), SensorEventListener {
 
@@ -47,8 +50,21 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
     private lateinit var sensorManager: SensorManager
     private var rotationVectorSensor: Sensor? = null
+    private var accelerometerSensor: Sensor? = null
+    private var magnetometerSensor: Sensor? = null
+
     private val rotationMatrix = FloatArray(9)
     private val orientationAngles = FloatArray(3)
+    private val lastGravity = FloatArray(3)
+    private val lastMagnet = FloatArray(3)
+    private var hasGravity = false
+    private var hasMagnet = false
+
+    // تصفية دائرية سلسة (Circular Low-Pass Filter) لمنع اهتزاز إبرة القبلة
+    private var smoothSin = 0.0
+    private var smoothCos = 1.0
+    private var hasSmoothInit = false
+    private var lastCompassPushMs = 0L
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -90,6 +106,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         rotationVectorSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+        if (rotationVectorSensor == null) {
+            accelerometerSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+            magnetometerSensor = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
+        }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -137,8 +157,16 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
     override fun onResume() {
         super.onResume()
-        rotationVectorSensor?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
+        hasSmoothInit = false
+        if (rotationVectorSensor != null) {
+            sensorManager.registerListener(this, rotationVectorSensor, SensorManager.SENSOR_DELAY_GAME)
+        } else {
+            accelerometerSensor?.let {
+                sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
+            }
+            magnetometerSensor?.let {
+                sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
+            }
         }
         appWebView?.evaluateJavascript(
             "if(window.syncLiveTodayDateIfNeeded){window.syncLiveTodayDateIfNeeded();}",
@@ -153,19 +181,69 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     }
 
     override fun onSensorChanged(event: SensorEvent?) {
-        if (event?.sensor?.type == Sensor.TYPE_ROTATION_VECTOR) {
-            SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
-            SensorManager.getOrientation(rotationMatrix, orientationAngles)
-            val azimuthRad = orientationAngles[0].toDouble()
-            val azimuthDeg = ((Math.toDegrees(azimuthRad) + 360.0) % 360.0).roundToInt()
+        if (event == null) return
+        var rawAzimuthRad: Double? = null
+
+        when (event.sensor.type) {
+            Sensor.TYPE_ROTATION_VECTOR -> {
+                SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
+                SensorManager.getOrientation(rotationMatrix, orientationAngles)
+                rawAzimuthRad = orientationAngles[0].toDouble()
+            }
+            Sensor.TYPE_ACCELEROMETER -> {
+                System.arraycopy(event.values, 0, lastGravity, 0, 3)
+                hasGravity = true
+            }
+            Sensor.TYPE_MAGNETIC_FIELD -> {
+                System.arraycopy(event.values, 0, lastMagnet, 0, 3)
+                hasMagnet = true
+            }
+        }
+
+        if (rawAzimuthRad == null && hasGravity && hasMagnet) {
+            if (SensorManager.getRotationMatrix(rotationMatrix, null, lastGravity, lastMagnet)) {
+                SensorManager.getOrientation(rotationMatrix, orientationAngles)
+                rawAzimuthRad = orientationAngles[0].toDouble()
+            }
+        }
+
+        if (rawAzimuthRad != null) {
+            val s = sin(rawAzimuthRad)
+            val c = cos(rawAzimuthRad)
+            if (!hasSmoothInit) {
+                smoothSin = s
+                smoothCos = c
+                hasSmoothInit = true
+            } else {
+                val alpha = 0.18
+                smoothSin += alpha * (s - smoothSin)
+                smoothCos += alpha * (c - smoothCos)
+            }
+
+            val nowMs = SystemClock.elapsedRealtime()
+            if (nowMs - lastCompassPushMs >= 33L) {
+                lastCompassPushMs = nowMs
+                val filteredRad = atan2(smoothSin, smoothCos)
+                val azimuthDeg = ((Math.toDegrees(filteredRad) + 360.0) % 360.0)
+                val rounded = (azimuthDeg * 10.0).toInt() / 10.0
+                appWebView?.evaluateJavascript(
+                    "if(window.updateNativeCompassHeading){window.updateNativeCompassHeading($rounded);}",
+                    null
+                )
+            }
+        }
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
+        if (sensor?.type == Sensor.TYPE_MAGNETIC_FIELD || sensor?.type == Sensor.TYPE_ROTATION_VECTOR) {
+            val needsCalibration = (accuracy == SensorManager.SENSOR_STATUS_UNRELIABLE ||
+                    accuracy == SensorManager.SENSOR_STATUS_ACCURACY_LOW)
             appWebView?.evaluateJavascript(
-                "if(window.updateNativeCompassHeading){window.updateNativeCompassHeading($azimuthDeg);}",
+                "if(window.updateNativeCompassAccuracy){window.updateNativeCompassAccuracy(${!needsCalibration});}",
                 null
             )
         }
     }
-
-    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
     private fun handleGeolocationPermission(
         origin: String?,
