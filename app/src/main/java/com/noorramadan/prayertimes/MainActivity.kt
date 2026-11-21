@@ -37,8 +37,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
+import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 class MainActivity : ComponentActivity(), SensorEventListener {
@@ -60,10 +62,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private var hasGravity = false
     private var hasMagnet = false
 
-    // تصفية دائرية سلسة (Circular Low-Pass Filter) لمنع اهتزاز إبرة القبلة
+    // تصفية دائرية متكيفة + عتبة ثبات (Deadband) لمنع أي اهتزاز في بوصلة القبلة
     private var smoothSin = 0.0
     private var smoothCos = 1.0
     private var hasSmoothInit = false
+    private var lastPushedDeg = -999.0
     private var lastCompassPushMs = 0L
 
     private val notificationPermissionLauncher = registerForActivityResult(
@@ -158,14 +161,15 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     override fun onResume() {
         super.onResume()
         hasSmoothInit = false
+        lastPushedDeg = -999.0
         if (rotationVectorSensor != null) {
-            sensorManager.registerListener(this, rotationVectorSensor, SensorManager.SENSOR_DELAY_GAME)
+            sensorManager.registerListener(this, rotationVectorSensor, SensorManager.SENSOR_DELAY_UI)
         } else {
             accelerometerSensor?.let {
-                sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
+                sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
             }
             magnetometerSensor?.let {
-                sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
+                sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
             }
         }
         appWebView?.evaluateJavascript(
@@ -215,21 +219,30 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 smoothCos = c
                 hasSmoothInit = true
             } else {
-                val alpha = 0.18
+                // تصفية متكيفة: ثبات عالٍ جداً عند السكون (0.06) واستجابة سلسة عند التدوير المقصود (0.20)
+                val prevRad = atan2(smoothSin, smoothCos)
+                val rawDeg = (Math.toDegrees(rawAzimuthRad) + 360.0) % 360.0
+                val prevDeg = (Math.toDegrees(prevRad) + 360.0) % 360.0
+                val delta = abs(((rawDeg - prevDeg + 540.0) % 360.0) - 180.0)
+                val alpha = if (delta > 14.0) 0.20 else 0.06
                 smoothSin += alpha * (s - smoothSin)
                 smoothCos += alpha * (c - smoothCos)
             }
 
             val nowMs = SystemClock.elapsedRealtime()
-            if (nowMs - lastCompassPushMs >= 33L) {
-                lastCompassPushMs = nowMs
+            if (nowMs - lastCompassPushMs >= 65L) {
                 val filteredRad = atan2(smoothSin, smoothCos)
                 val azimuthDeg = ((Math.toDegrees(filteredRad) + 360.0) % 360.0)
-                val rounded = (azimuthDeg * 10.0).toInt() / 10.0
-                appWebView?.evaluateJavascript(
-                    "if(window.updateNativeCompassHeading){window.updateNativeCompassHeading($rounded);}",
-                    null
-                )
+                val diffFromLast = if (lastPushedDeg < 0) 999.0 else abs(((azimuthDeg - lastPushedDeg + 540.0) % 360.0) - 180.0)
+                if (diffFromLast >= 1.2) {
+                    lastCompassPushMs = nowMs
+                    lastPushedDeg = azimuthDeg
+                    val stableDeg = azimuthDeg.roundToInt() % 360
+                    appWebView?.evaluateJavascript(
+                        "if(window.updateNativeCompassHeading){window.updateNativeCompassHeading($stableDeg);}",
+                        null
+                    )
+                }
             }
         }
     }
