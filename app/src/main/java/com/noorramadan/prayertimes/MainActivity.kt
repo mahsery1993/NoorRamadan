@@ -180,6 +180,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     }
 
     override fun onPause() {
+        appWebView?.evaluateJavascript("if(typeof saveState==='function'){saveState();}", null)
         super.onPause()
         sensorManager.unregisterListener(this)
     }
@@ -290,6 +291,27 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     }
 
     inner class AndroidPrayerBridge(private val context: Context) {
+
+        @JavascriptInterface
+        fun saveAppState(stateJson: String): Boolean {
+            return try {
+                val prefs = context.getSharedPreferences(PrayerAlarmScheduler.PREFS_NAME, Context.MODE_PRIVATE)
+                prefs.edit().putString("app_state_json_v1", stateJson).commit()
+            } catch (_: Exception) {
+                false
+            }
+        }
+
+        @JavascriptInterface
+        fun loadAppState(): String {
+            return try {
+                val prefs = context.getSharedPreferences(PrayerAlarmScheduler.PREFS_NAME, Context.MODE_PRIVATE)
+                prefs.getString("app_state_json_v1", "") ?: ""
+            } catch (_: Exception) {
+                ""
+            }
+        }
+
 
         @JavascriptInterface
         fun showImmediatePrayerNotification(

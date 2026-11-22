@@ -1622,6 +1622,27 @@ body.light-theme #input-custom-dhikr-text {
   line-height: 1.15 !important;
 }
 
+
+/* === Sticky Top Sub-Tab Bars across All Inner Sections === */
+.tab-top-bar {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 35 !important;
+  margin-left: -0.25rem;
+  margin-right: -0.25rem;
+  padding: 0.45rem 0.35rem 0.5rem !important;
+  background: rgba(2, 6, 23, 0.88) !important;
+  backdrop-filter: blur(14px) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
+  border-bottom: 1px solid rgba(245, 158, 11, 0.22);
+  border-radius: 0 0 1rem 1rem;
+}
+body.light-theme .tab-top-bar {
+  background: rgba(238, 242, 255, 0.92) !important;
+  border-bottom: 1px solid rgba(30, 58, 138, 0.14);
+  box-shadow: 0 4px 12px rgba(30, 58, 138, 0.06);
+}
+
 </style>
 </head>
 <body class="light-theme min-h-screen flex flex-col justify-between pb-24">
@@ -3583,7 +3604,16 @@ body.light-theme #input-custom-dhikr-text {
 
     function loadSavedState() {
       try {
-        const raw = localStorage.getItem('noor_ramadan_state_v5');
+        let raw = null;
+        try {
+          if (window.AndroidBridge && typeof window.AndroidBridge.loadAppState === 'function') {
+            const nativeRaw = window.AndroidBridge.loadAppState();
+            if (nativeRaw && nativeRaw.length > 2) raw = nativeRaw;
+          }
+        } catch (e) {}
+        if (!raw) {
+          try { raw = localStorage.getItem('noor_ramadan_state_v5'); } catch (e) {}
+        }
         if (raw) {
           const parsed = JSON.parse(raw);
           if (parsed.cityKey) state.cityKey = parsed.cityKey;
@@ -3612,6 +3642,14 @@ body.light-theme #input-custom-dhikr-text {
           if (typeof parsed.use24Hour === 'boolean') state.use24Hour = parsed.use24Hour;
           if (typeof parsed.imsakOffset === 'number') state.imsakOffset = parsed.imsakOffset;
           if (typeof parsed.manualTune === 'number') state.manualTune = parsed.manualTune;
+          if (typeof parsed.tasbeehCount === 'number') state.tasbeehCount = parsed.tasbeehCount;
+          if (typeof parsed.tasbeehTarget === 'number') state.tasbeehTarget = parsed.tasbeehTarget;
+          if (parsed.tasbeehPhrase) state.tasbeehPhrase = parsed.tasbeehPhrase;
+          if (typeof parsed.khatmahCount === 'number') state.khatmahCount = parsed.khatmahCount;
+          if (parsed.completedPrayersDate && parsed.completedPrayersDate !== getTodayLocalDateStr()) {
+            // إذا تغيّر اليوم الميلادي نبدأ متابعة صلوات اليوم الجديد بنظافة
+            state.completedPrayers = { fajr: false, dhuhr: false, asr: false, maghrib: false, isha: false };
+          }
         }
         const savedAudio = localStorage.getItem('noor_ramadan_custom_adhan');
         if (savedAudio) {
@@ -3624,13 +3662,17 @@ body.light-theme #input-custom-dhikr-text {
 
     function saveState() {
       try {
-        localStorage.setItem('noor_ramadan_state_v5', JSON.stringify({
+        const payload = JSON.stringify({
           cityKey: state.cityKey,
           customCoords: state.customCoords,
           methodKey: state.methodKey,
           fastedDays: state.fastedDays,
           completedPrayers: state.completedPrayers,
+          completedPrayersDate: state.selectedDateStr || getTodayLocalDateStr(),
           tasbeehLifetime: state.tasbeehLifetime,
+          tasbeehCount: state.tasbeehCount,
+          tasbeehTarget: state.tasbeehTarget,
+          tasbeehPhrase: state.tasbeehPhrase,
           perPrayerOffsets: state.perPrayerOffsets,
           customAdhanName: state.customAdhanName,
           quizAnswers: state.quizAnswers,
@@ -3639,6 +3681,7 @@ body.light-theme #input-custom-dhikr-text {
           khatmahJuz: state.khatmahJuz,
           khatmahPage: state.khatmahPage,
           khatmahAyah: state.khatmahAyah,
+          khatmahCount: state.khatmahCount,
           khatmahCompletedJuz: state.khatmahCompletedJuz,
           khatmahCompletedRounds: state.khatmahCompletedRounds,
           ramadanFastingMode: !!state.ramadanFastingMode,
@@ -3651,7 +3694,15 @@ body.light-theme #input-custom-dhikr-text {
           use24Hour: !!state.use24Hour,
           imsakOffset: state.imsakOffset ?? 10,
           manualTune: state.manualTune ?? 0
-        }));
+        });
+        try {
+          if (window.AndroidBridge && typeof window.AndroidBridge.saveAppState === 'function') {
+            window.AndroidBridge.saveAppState(payload);
+          }
+        } catch (e) {}
+        try {
+          localStorage.setItem('noor_ramadan_state_v5', payload);
+        } catch (e) {}
       } catch (e) {}
     }
 
@@ -4567,10 +4618,15 @@ body.light-theme #input-custom-dhikr-text {
         const times = calculatePrayerTimesForDate(yr, mo, dy, true);
         const isOddLastTen = dayNum >= 21 && (dayNum % 2 === 1);
 
+        const magNorm = fixHour(times.maghrib);
+        const magTotalMins = Math.round(magNorm * 60);
+        const maghribUnlockMs = new Date(yr, mo - 1, dy, Math.floor(magTotalMins / 60) % 24, magTotalMins % 60, 0).getTime();
+
         rows.push({
           ramadanDay: dayNum,
           gregLabel,
           isOddLastTen,
+          maghribUnlockMs,
           imsak: formatDecimalHour(times.imsak),
           fajr: formatDecimalHour(times.fajr),
           sunrise: formatDecimalHour(times.sunrise),
@@ -4621,8 +4677,8 @@ body.light-theme #input-custom-dhikr-text {
             <td class="py-2 px-2 text-center theme-text-primary whitespace-nowrap ${strikeClass}">${row.isha}</td>
             <td class="py-2 px-2 text-center theme-text-secondary whitespace-nowrap ${strikeClass}">${row.fastingDuration}</td>
             <td class="py-2 px-2 text-center">
-              <button type="button" data-fastday="${row.ramadanDay}" class="toggle-fast-btn ${isFasted ? 'btn-gold' : 'btn-dark-emerald'}" style="padding:0.22rem 0.55rem;font-size:11px;">
-                ${isFasted ? '✓ صمته' : 'تسجيل'}
+              <button type="button" data-fastday="${row.ramadanDay}" data-unlock-ms="${row.maghribUnlockMs}" data-maghrib-str="${row.maghrib}" class="toggle-fast-btn ${Date.now() >= row.maghribUnlockMs ? (isFasted ? 'btn-emerald' : 'btn-dark-emerald') : 'btn-dark-emerald opacity-60'}" style="padding:0.24rem 0.55rem;font-size:10px;${Date.now() < row.maghribUnlockMs ? 'opacity:0.58;cursor:not-allowed;' : ''}">
+                ${Date.now() < row.maghribUnlockMs ? '🔒 بعد المغرب' : (isFasted ? '✅ تم الصيام' : 'تسجيل')}
               </button>
             </td>
           </tr>
@@ -4631,16 +4687,17 @@ body.light-theme #input-custom-dhikr-text {
 
       tbody.querySelectorAll('.toggle-fast-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-          const day = Number(btn.getAttribute('data-fastday'));
+          const day = btn.getAttribute('data-fastday');
+          const unlockMs = Number(btn.getAttribute('data-unlock-ms') || '0');
+          const magStr = btn.getAttribute('data-maghrib-str') || '';
+          if (unlockMs > 0 && Date.now() < unlockMs) {
+            showToast(`لا يمكن تسجيل صيام اليوم ${day} من رمضان قبل موعد أذان المغرب الحقيقي (${magStr})`, '🔒');
+            return;
+          }
           state.fastedDays[day] = !state.fastedDays[day];
           saveState();
           renderRamadanImsakiya();
-          showToast(
-            state.fastedDays[day]
-              ? `تقبل الله صيام اليوم ${day} من شهر رمضان المبارك!`
-              : `تم إلغاء تحديد اليوم ${day} من رمضان`,
-            '🌙'
-          );
+          showToast(state.fastedDays[day] ? `تقبل الله صيامك! تم تسجيل اليوم ${day} من رمضان` : `تم إلغاء تسجيل اليوم ${day}`, state.fastedDays[day] ? '✅' : '↩️');
         });
       });
     }
@@ -6166,6 +6223,30 @@ body.light-theme #input-custom-dhikr-text {
 
       // Initial render refresh so Fasting-mode prayer filter applies immediately on load
       if (typeof renderDailyPrayers === 'function') renderDailyPrayers();
+    })();
+
+  
+    // === Guarantee Persistence Flush on App Background / Exit & Sync Saved Khatmah Inputs ===
+    (function initPersistenceLifecycle() {
+      const flushNow = () => { try { saveState(); } catch (e) {} };
+      window.addEventListener('pagehide', flushNow);
+      window.addEventListener('beforeunload', flushNow);
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') flushNow();
+      });
+
+      // Ensure Khatmah Surah/Juz/Page/Ayah inputs reflect loaded state after restart
+      const sSel = document.getElementById('select-khatmah-surah');
+      const jSel = document.getElementById('select-khatmah-juz');
+      const pInp = document.getElementById('input-khatmah-page');
+      const aInp = document.getElementById('input-khatmah-ayah');
+      if (sSel && state.khatmahSurah) sSel.value = state.khatmahSurah;
+      if (jSel && typeof state.khatmahJuz === 'number') jSel.value = String(state.khatmahJuz);
+      if (pInp && typeof state.khatmahPage === 'number') pInp.value = String(state.khatmahPage);
+      if (aInp && typeof state.khatmahAyah === 'number') aInp.value = String(state.khatmahAyah);
+      if (typeof renderKhatmahTracker === 'function') renderKhatmahTracker();
+      if (typeof renderRamadanQuiz === 'function') renderRamadanQuiz();
+      if (typeof renderPrayerTracker === 'function') renderPrayerTracker();
     })();
 
   </script>
