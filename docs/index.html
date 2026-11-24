@@ -2283,12 +2283,6 @@ body.light-theme .tab-top-bar {
           </div>
         </div>
 
-        <div class="flex justify-center">
-          <button id="btn-reset-quiz" type="button" class="btn-danger" style="padding:0.28rem 0.75rem;font-size:11px;">
-            تصفير العداد 🔄
-          </button>
-        </div>
-
         <div class="space-y-1.5 pt-1">
           <div id="quiz-days-strip" class="flex items-center gap-1.5 overflow-x-auto py-1">
             <!-- 30 Day buttons populated by JS -->
@@ -2297,6 +2291,7 @@ body.light-theme .tab-top-bar {
       </div>
 
       <!-- Daily 3 Questions Container -->
+      <div id="quiz-hijri-lock-banner" class="inner-box p-3 text-center text-xs font-extrabold theme-text-gold"></div>
       <div id="quiz-questions-container" class="space-y-3">
         <!-- Populated dynamically by JS with the 3 questions for the selected day -->
       </div>
@@ -3602,6 +3597,7 @@ body.light-theme .tab-top-bar {
       zakatWealth: 0
     };
 
+    let _stateHydrated = false;
     function loadSavedState() {
       try {
         let raw = null;
@@ -3658,9 +3654,11 @@ body.light-theme .tab-top-bar {
           if (player) player.src = savedAudio;
         }
       } catch (e) {}
+      _stateHydrated = true;
     }
 
     function saveState() {
+      if (!_stateHydrated) return;
       try {
         const payload = JSON.stringify({
           cityKey: state.cityKey,
@@ -3705,6 +3703,9 @@ body.light-theme .tab-top-bar {
         } catch (e) {}
       } catch (e) {}
     }
+
+    // Eagerly hydrate saved state before any IIFE executes
+    loadSavedState();
 
     function initAthkarCounts(onlyCategory = null) {
       Object.keys(ATHKAR_DATA).forEach(cat => {
@@ -6247,6 +6248,107 @@ body.light-theme .tab-top-bar {
       if (typeof renderKhatmahTracker === 'function') renderKhatmahTracker();
       if (typeof renderRamadanQuiz === 'function') renderRamadanQuiz();
       if (typeof renderPrayerTracker === 'function') renderPrayerTracker();
+    })();
+
+  
+    // === Strict Hijri Ramadan Day-by-Day Quiz Gating & Post-Load UI Sync ===
+    (function initHijriQuizGateAndSync() {
+      function getLiveHijriInfo() {
+        try {
+          const parts = new Intl.DateTimeFormat('en-u-ca-islamic-umalqura', {
+            day: 'numeric',
+            month: 'numeric',
+            year: 'numeric'
+          }).formatToParts(new Date());
+          const hMonth = parseInt((parts.find(p => p.type === 'month') || {}).value || '0', 10);
+          const hDay = parseInt((parts.find(p => p.type === 'day') || {}).value || '0', 10);
+          const hYear = parseInt((parts.find(p => p.type === 'year') || {}).value || '1448', 10);
+          if (hMonth >= 1 && hMonth <= 12 && hDay >= 1 && hDay <= 30) {
+            return { month: hMonth, day: hDay, year: hYear, isRamadan: hMonth === 9 };
+          }
+        } catch (e) {}
+        return { month: 0, day: 0, year: 1448, isRamadan: false };
+      }
+
+      const origRenderQuiz = typeof renderRamadanQuiz === 'function' ? renderRamadanQuiz : null;
+      if (origRenderQuiz) {
+        window.renderRamadanQuiz = function() {
+          const hijri = getLiveHijriInfo();
+          if (hijri.isRamadan && !window._quizAutoPickedToday) {
+            state.quizSelectedDay = hijri.day;
+            window._quizAutoPickedToday = true;
+          }
+
+          origRenderQuiz();
+
+          const selectedDay = Math.max(1, Math.min(30, Number(state.quizSelectedDay) || 1));
+          const canAnswerSelectedDay = hijri.isRamadan && (selectedDay === hijri.day);
+          const banner = document.getElementById('quiz-hijri-lock-banner');
+
+          if (banner) {
+            if (!hijri.isRamadan) {
+              banner.innerHTML = '🔒 المسابقة مرتبطة بشهر رمضان المبارك حسب التاريخ الهجري — تُفتح الأسئلة تلقائياً كل يوم بيومه عند حلول رمضان';
+            } else if (selectedDay === hijri.day) {
+              banner.innerHTML = `🌙 اليوم ${hijri.day} من رمضان ${hijri.year} هـ — أسئلة اليوم مفتوحة الآن للإجابة`;
+            } else if (selectedDay > hijri.day) {
+              banner.innerHTML = `🔒 اليوم ${selectedDay} من رمضان لم يحن بعد — تُفتح أسئلة كل يوم في موعده الهجري`;
+            } else {
+              banner.innerHTML = `📖 أرشيف اليوم ${selectedDay} من رمضان (للعرض فقط — الإجابة متاحة ليوم رمضان الحالي فقط)`;
+            }
+          }
+
+          // Mark locked day pills in the 30-day strip
+          document.querySelectorAll('#quiz-days-strip .quiz-day-pill').forEach(pill => {
+            const dNum = Number(pill.getAttribute('data-quiz-day'));
+            const isLockedPill = !hijri.isRamadan || dNum > hijri.day;
+            if (isLockedPill && !pill.textContent.includes('🔒')) {
+              pill.textContent = `🔒 ${dNum}`;
+              pill.style.opacity = '0.68';
+            }
+          });
+
+          // Enforce strict answer lock on all option buttons when selectedDay is not today's Hijri Ramadan day
+          if (!canAnswerSelectedDay) {
+            document.querySelectorAll('#quiz-questions-container .quiz-option-btn').forEach(btn => {
+              const clone = btn.cloneNode(true);
+              clone.style.opacity = '0.72';
+              clone.style.cursor = 'not-allowed';
+              clone.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (!hijri.isRamadan) {
+                  showToast('لا يمكن الإجابة على أسئلة المسابقة إلا خلال أيام شهر رمضان المبارك حسب التاريخ الهجري', '🔒');
+                } else if (selectedDay > hijri.day) {
+                  showToast(`لا يمكن الإجابة على أسئلة اليوم ${selectedDay} قبل حلول موعده في رمضان`, '🔒');
+                } else {
+                  showToast(`انتهى وقت الإجابة لليوم ${selectedDay} — المسابقة تُجاب كل يوم بيومه (اليوم الحالي: ${hijri.day} رمضان)`, '🔒');
+                }
+              });
+              btn.parentNode.replaceChild(clone, btn);
+            });
+          }
+        };
+      }
+
+      // Guarantee all UI controls reflect the hydrated state cleanly after DOMContentLoaded
+      window.addEventListener('DOMContentLoaded', () => {
+        setTimeout(() => {
+          const sSel = document.getElementById('select-khatmah-surah');
+          const jSel = document.getElementById('select-khatmah-juz');
+          const pInp = document.getElementById('input-khatmah-page');
+          const aInp = document.getElementById('input-khatmah-ayah');
+          if (sSel && state.khatmahSurah) sSel.value = state.khatmahSurah;
+          if (jSel && typeof state.khatmahJuz === 'number') jSel.value = String(state.khatmahJuz);
+          if (pInp && typeof state.khatmahPage === 'number') pInp.value = String(state.khatmahPage);
+          if (aInp && typeof state.khatmahAyah === 'number') aInp.value = String(state.khatmahAyah);
+          const ft = document.getElementById('toggle-ramadan-fasting-mode');
+          if (ft) ft.checked = !!state.ramadanFastingMode;
+          document.body.classList.toggle('light-theme', !!state.lightTheme);
+          if (typeof renderKhatmahTracker === 'function') renderKhatmahTracker();
+          if (typeof window.renderRamadanQuiz === 'function') window.renderRamadanQuiz();
+          if (typeof renderDailyPrayers === 'function') renderDailyPrayers();
+        }, 60);
+      });
     })();
 
   </script>
